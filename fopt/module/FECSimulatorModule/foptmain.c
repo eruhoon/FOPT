@@ -1,0 +1,880 @@
+#include<stdio.h>
+#include<time.h>
+#include<stdlib.h>
+#include <math.h>
+#include <dlfcn.h>
+#include <string.h>
+#include <unistd.h>
+#include <signal.h>
+
+
+/*Test Result Data*/
+unsigned int OriDataSize = 0;
+unsigned int ErrBitCount = 0;
+unsigned int CorBitCount = 0;
+unsigned int OriRTPPacketCount = 0;
+unsigned int OriUDPPacketCount = 0;
+unsigned int OriIPPacketCount = 0;
+unsigned int ErrRTPPacketCount = 0;
+unsigned int ErrUDPPacketCount = 0;
+unsigned int ErrIPPacketCount = 0;
+unsigned int CorRTPPacketCount = 0;
+unsigned int CorUDPPacketCount = 0;
+unsigned int CorIPPacketCount = 0;
+#define TESTCASE 10
+
+double EBNO[TESTCASE] = {0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0};
+double BER[TESTCASE] = {0, };
+int BERSelector = 0;
+int ErrorCount[TESTCASE] = {0,};
+int EncodedErrorCount[TESTCASE] = {0,};
+
+unsigned char *MTUEncodedData[TESTCASE] = {0,};
+unsigned char *MTUErrData[TESTCASE] = {0,};
+
+unsigned int ErrorBitCount = 0;
+unsigned int *ErrorPosition = NULL;
+unsigned int CurrentPosition = 0;
+
+unsigned int CorErrorBitCount = 0;
+unsigned int *CorErrorPosition = NULL;
+unsigned int CorCurrentPosition = 0;
+unsigned int TotalEncodedLen = 0;
+double EncodingRate = 0;
+
+
+double T[5] = {0.0,};
+unsigned int ErrExponentialPoint[5] = {0 ,};
+unsigned int ErrValue = 0;
+unsigned int CorExponentialPoint[5] = {0 ,};
+unsigned int CorValue = 0;
+
+void (*Encoding)(unsigned char*, unsigned char*, int, double);
+void (*Decoding)(unsigned char*, unsigned char*, int, double);
+unsigned int (*Info)(unsigned int, double);
+
+void TestVideo(char* libname, char* resultname, char* sample);
+void ResetGlobal();
+void SetErrorPos(unsigned int len, int BERSelector);
+
+void Packataging(unsigned char OriginData[], unsigned char CorData[], unsigned char ErrData[], unsigned int len);
+void RTPPakataging(unsigned char Data[], unsigned char Result[], unsigned char Error[], int len);
+void UDPPakataging(unsigned char Data[], unsigned char Result[], unsigned char Error[], int len);
+void IPPakataging(unsigned char Data[], unsigned char Result[], unsigned char Error[], int len);
+void UsingEncoding(unsigned char Data[], unsigned char Result[], unsigned char Error[], int len);
+
+void ErrorGenerating(unsigned char Data[], unsigned char Error[], int len, int flag);
+
+void WriteTestResult(int Dataid, FILE *target);
+void PoissonProcess();
+void sigint_handler(int signo);
+int run = 0;
+int setTime = 0;
+int getTime = 0;
+void onalarm(){
+	run = 1;
+	setTime = setTime+1;
+	if( setTime == getTime+1 ){
+<<<<<<< .mine
+		alarm(60 * 5) ;
+=======
+		//printf("call alarm\n");
+		alarm(60 * 30) ;
+>>>>>>> .r44
+	}	
+}
+void offalarm(){
+
+	run = 0;
+}
+void sigint_handler(int signo){
+	if(signo == SIGALRM)	{
+		getTime++;
+		printf("getTime:%d SetTime:%d\n",getTime, setTime);
+		if(setTime == getTime)		{
+			if(run == 1)			{
+				//printf("Time Out!\n");
+				exit(1);
+			}
+		}else		{
+			if( getTime < setTime ){
+<<<<<<< .mine
+				alarm( 60 * 5 );
+=======
+				//printf("set alarm\n");
+				alarm( 60 * 30 );
+>>>>>>> .r44
+			}
+		}
+	}
+	
+}
+unsigned int A_Info(unsigned int a, double b){
+	unsigned int result = 0;
+	//printf("call info\n");
+	onalarm();
+	result = (*Info)(a,b);
+	offalarm();
+	return result;
+}
+void A_Encoding(unsigned char* a, unsigned char* b, int c, double d){
+	//printf("call encoding\n");
+	onalarm();
+	(*Encoding)(a,b,c,d);
+	offalarm();
+}
+void A_Decoding(unsigned char* a, unsigned char* b, int c, double d){
+	//printf("call decoding\n");
+	onalarm();
+	(*Decoding)(a,b,c,d);
+	offalarm();
+}
+
+/*******************************************************************
+Packaging
+//Data[]
+//Result[]
+//Error[]
+//len
+*******************************************************************/
+void Packataging(unsigned char Data[], unsigned char Result[], unsigned char Error[], unsigned int len){
+	unsigned char OriDividedData[65515] = {0, };
+	unsigned char CorDividedData[65515] = {0, };
+	unsigned char ErrDividedData[65515] = {0, };
+	unsigned long long tail = 0;
+	unsigned long long i = 0;
+
+	for( ; (i * 65515) + 65515 < len ; i++){
+		memset(OriDividedData, 0, sizeof(OriDividedData));
+		memset(CorDividedData, 0, sizeof(CorDividedData));
+		memset(ErrDividedData, 0, sizeof(ErrDividedData));
+		memcpy(OriDividedData, Data+(i*65515), 65515);
+		RTPPakataging(OriDividedData, CorDividedData, ErrDividedData, 65515);
+		memcpy(Result+(i*65515), CorDividedData, 65515);
+		memcpy(Error+(i*65515), ErrDividedData, 65515);
+	}
+	tail = len % 65515;
+	memset(OriDividedData, 0, sizeof(OriDividedData));
+	memset(CorDividedData, 0, sizeof(CorDividedData));
+	memset(ErrDividedData, 0, sizeof(ErrDividedData));
+	memcpy(OriDividedData, Data+(i*65515), tail);
+	RTPPakataging(OriDividedData, CorDividedData, ErrDividedData, tail);
+	memcpy(Result+(i*65515), CorDividedData, tail);
+	memcpy(Error+(i*65515), ErrDividedData, tail);	
+
+}
+
+
+/*******************************************************************
+RTP Packaging
+//Data[]
+//Result[]
+//Error[]
+//len
+*******************************************************************/
+void RTPPakataging(unsigned char Data[], unsigned char Result[], unsigned char Error[], int len){
+	unsigned char OriRTPPacket[len + 12];
+	unsigned char CorRTPPacket[len + 12];
+	unsigned char ErrRTPPacket[len + 12];
+	static unsigned short SequenceNumber = 0;
+	unsigned short OriSeq = 0, ResultSeq = 0;
+
+	memset(OriRTPPacket, 0, sizeof(OriRTPPacket));
+	memset(CorRTPPacket, 0, sizeof(CorRTPPacket));
+	memset(ErrRTPPacket, 0, sizeof(ErrRTPPacket));
+	OriRTPPacketCount++;
+
+	// Set Sequence Number and Paketaging
+	SequenceNumber++;
+	OriSeq = SequenceNumber;
+	memcpy(OriRTPPacket+2, &SequenceNumber, 2);
+	if(SequenceNumber == 65535){ SequenceNumber = 0;}
+	memcpy(OriRTPPacket+12, Data, len);
+
+	UDPPakataging(OriRTPPacket, CorRTPPacket, ErrRTPPacket, len+20);
+
+	memcpy(Result, CorRTPPacket+12, len);
+	memcpy(Error, ErrRTPPacket+12, len);
+	//Check ColData
+	memcpy(&ResultSeq, CorRTPPacket+2, 2);
+
+
+	if(OriSeq == ResultSeq && 
+		(CorRTPPacket[8] | CorRTPPacket[9] |
+		CorRTPPacket[10] | CorRTPPacket[11]) == 0) CorRTPPacketCount++;
+	
+
+	//Check ErrData
+	memcpy(&ResultSeq, ErrRTPPacket+2, 2);
+	if(OriSeq == ResultSeq && 
+		(ErrRTPPacket[8] | ErrRTPPacket[9] |
+		ErrRTPPacket[10] | ErrRTPPacket[11]) == 0) ErrRTPPacketCount++;
+
+}
+
+/*******************************************************************
+UDP Packaging
+//Data[]
+//Result[]
+//Error[]
+//len
+*******************************************************************/
+void UDPPakataging(unsigned char Data[], unsigned char Result[], unsigned char Error[], int len){
+	unsigned char OriUDPPacket[len + 8];
+	unsigned char CorUDPPacket[len + 8];
+	unsigned char ErrUDPPacket[len + 8];
+
+
+	memset(OriUDPPacket, 0, sizeof(OriUDPPacket));
+	memset(CorUDPPacket, 0, sizeof(CorUDPPacket));
+	memset(ErrUDPPacket, 0, sizeof(ErrUDPPacket));
+	OriUDPPacketCount++;
+	memcpy(OriUDPPacket + 8, Data, len);
+	IPPakataging(OriUDPPacket, CorUDPPacket, ErrUDPPacket, len+8);	
+	memcpy(Result, CorUDPPacket+8, len);
+	memcpy(Error, ErrUDPPacket+8, len);
+	ErrUDPPacketCount++;
+	CorUDPPacketCount++;
+}
+
+
+/*******************************************************************
+IP Packaging
+//Data[]
+//Result[]
+//Error[]
+//len
+*******************************************************************/
+void IPPakataging(unsigned char Data[], unsigned char Result[], unsigned char Error[], int len){
+	unsigned char OriIPPacket[1500];	
+	unsigned char CorIPPacket[1500];
+	unsigned char ErrIPPacket[1500];
+	short Checksum = 0, Checktemp = 0, ErrChecksum = 0, ErrChecktemp = 0;
+	unsigned char Offset = 0, TempOff = 0;
+	unsigned char flag = 32, end = 0;
+	int i = 0, j = 0;
+	int tail = 0;
+
+	// MTU Fragmentation.
+	for(i = 0; (i * 1480) + 1480 < len; i++){
+		memset(OriIPPacket, 0, sizeof(OriIPPacket));
+		memset(CorIPPacket, 0, sizeof(CorIPPacket));
+		memset(ErrIPPacket, 0, sizeof(ErrIPPacket));
+		Checksum = 0;
+		Checktemp = 0;
+		// Fragmentation Setting
+		Offset++;
+		if(Offset > 255) // Over 7 bits 
+			Offset = 0;		
+		memcpy(OriIPPacket + 7, &Offset, 1); //Maximum Offset is 44	
+		if(i * 1480 + 1480 == len) end = 1;// Set flag of End of Fragmentation
+		else OriIPPacket[6] = OriIPPacket[6] | flag; // Set Flag
+		// Checksum setting
+		for(j = 0; j < 20; j = j + 2){
+			memcpy(&Checktemp, OriIPPacket + j, 2);
+			Checksum = Checksum^Checktemp;		
+		}
+		memcpy(OriIPPacket + 10, &Checksum, 2);
+		memcpy(OriIPPacket + 20, Data + (i * 1480), 1480);
+		OriIPPacketCount++;
+
+		UsingEncoding(OriIPPacket, CorIPPacket, ErrIPPacket, 1500);
+
+		memcpy(Result + (i * 1480), CorIPPacket+20, 1480);
+		memcpy(Error + (i * 1480), ErrIPPacket+20, 1480);
+
+	
+
+		// Calculate CheckSum
+		Checksum = 0;
+		Checktemp = 0;
+		ErrChecksum = 0;
+		ErrChecksum = 0;
+		for(j = 0; j < 20; j = j + 2){
+			if(j == 10) continue;
+			memcpy(&Checktemp, CorIPPacket + j, 2);
+			Checksum = Checksum^Checktemp;
+			memcpy(&ErrChecktemp, ErrIPPacket + j, 2);
+			ErrChecksum = ErrChecksum^ErrChecktemp;
+		}
+		
+		// Check Cor
+		memcpy(&Checktemp, CorIPPacket + 10, 2);
+		memcpy(&TempOff, CorIPPacket + 7, 1);
+		if(CorIPPacket[12] == 0 && CorIPPacket[13] == 0 && 
+		CorIPPacket[14] == 0 && CorIPPacket[15] == 0 && 
+		TempOff == Offset && Checksum == Checktemp) 	CorIPPacketCount++;
+
+		// Check Err
+		memcpy(&ErrChecktemp, ErrIPPacket + 10, 2);
+		memcpy(&TempOff, ErrIPPacket + 7, 1);
+		if(ErrIPPacket[12] == 0 && ErrIPPacket[13] == 0 && 
+		ErrIPPacket[14] == 0 && ErrIPPacket[15] == 0 && 
+		TempOff == Offset && ErrChecksum == ErrChecktemp) 	ErrIPPacketCount++;
+
+	}
+	if(end == 1){}
+	// Last Fragmentation.
+	else{ 
+		tail = len % 1480;
+		memset(OriIPPacket, 0, sizeof(OriIPPacket));
+		memset(CorIPPacket, 0, sizeof(CorIPPacket));
+		memset(ErrIPPacket, 0, sizeof(ErrIPPacket));
+		Checksum = 0;
+		Checktemp = 0;
+		// Fragmentation Setting
+		Offset++;
+		if(Offset > 8191) // Over 7 bits 
+			Offset = 0;
+		memcpy(OriIPPacket + 6, &Offset, 2);			
+		end = 1;// Set Flag 0 (End of Fragmentation)
+	
+		// Checksum setting
+		for(j = 0; j < 20; j = j + 2){
+			memcpy(&Checktemp, OriIPPacket + j, 2);
+			Checksum = Checksum^Checktemp;		
+		}
+		memcpy(OriIPPacket + 10, &Checksum, 2);
+		memcpy(OriIPPacket + 20, Data + (i * 1480), tail);
+
+		UsingEncoding(OriIPPacket, CorIPPacket, ErrIPPacket, tail + 20);
+
+		memcpy(Result + (i * 1480), CorIPPacket+20, tail);
+		memcpy(Error + (i * 1480), ErrIPPacket+20, tail);
+
+		// Calculate CheckSum
+		Checksum = 0;
+		Checktemp = 0;
+		ErrChecksum = 0;
+		ErrChecksum = 0;
+		
+		for(j = 0; j < 20; j = j + 2){
+			if(j == 10) continue;
+			memcpy(&Checktemp, CorIPPacket + j, 2);
+			Checksum = Checksum^Checktemp;
+			memcpy(&ErrChecktemp, ErrIPPacket + j, 2);
+			ErrChecksum = ErrChecksum^ErrChecktemp;
+		}
+		
+		// Check Cor
+		memcpy(&Checktemp, CorIPPacket + 10, 2);
+		memcpy(&TempOff, CorIPPacket + 7, 1);
+		if(TempOff == Offset && Checksum == Checktemp) 	CorIPPacketCount++;
+
+		// Check Err
+		memcpy(&ErrChecktemp, ErrIPPacket + 10, 2);
+		memcpy(&TempOff, CorIPPacket + 7, 1);
+		if(TempOff == Offset && ErrChecksum == ErrChecktemp) 	ErrIPPacketCount++;
+	}
+}
+
+
+/*******************************************************************
+Encoding
+//Data[]
+//Result[]
+//Error[]
+//len
+*******************************************************************/
+void UsingEncoding(unsigned char Data[], unsigned char Result[], unsigned char Error[], int len){
+	unsigned char *EncodedData = NULL;
+	unsigned char *ErrorData = NULL;
+	int EncodedLen;
+//	EncodedLen = Info_Hamming(len, BER[BERSelector]);
+	EncodedLen = A_Info(len, BER[BERSelector]);
+	if(len != 1500){		
+		EncodedData = (char*)malloc(sizeof(char) * EncodedLen);
+		ErrorData = (char*)malloc(sizeof(char) * EncodedLen);			
+		memset(EncodedData, 0, len);
+		memset(ErrorData, 0, len);	
+	}else{
+		memset(MTUEncodedData[BERSelector], 0, EncodedLen);
+		memset(MTUErrData[BERSelector], 0, EncodedLen);
+		EncodedData = MTUEncodedData[BERSelector];
+		ErrorData = MTUErrData[BERSelector];
+	}
+
+	
+	//Encoding_Hamming(Data, EncodedData, len, BER[BERSelector]);
+
+	A_Encoding(Data, EncodedData, len, BER[BERSelector]);
+
+	ErrorGenerating(EncodedData, ErrorData, EncodedLen, 0);
+	ErrorGenerating(Data, Error, len, 1);
+
+	//Decoding_Hamming(ErrorData, Result, EncodedLen, BER[BERSelector]);
+	A_Decoding(ErrorData, Result, EncodedLen, BER[BERSelector]);
+	if(len != 1500){
+		free(EncodedData);
+		free(ErrorData);
+	}
+
+}
+
+
+/*******************************************************************
+Error Generating
+//Data[]
+//Error[]
+//len
+//flag
+*******************************************************************/
+void ErrorGenerating(unsigned char Data[], unsigned char Error[], int len, int flag){ //flag 1 = Error, 0 = Cor
+	int CurPos = 0, MaxPos = 0;
+	unsigned char ErrorData[len];
+	int i = 0;
+	unsigned int BytePos = 0;
+	unsigned char BitPos = 3;	
+	memcpy(ErrorData, Data, len);
+	
+	if(flag == 1 && ErrorBitCount > ErrValue){ //Error	
+		CurPos = CurrentPosition;
+		MaxPos = CurPos + len;	
+		for(i = 0; i < ErrorBitCount; i++){	
+			if(CurPos < ErrorPosition[i] && ErrorPosition[i] < MaxPos){
+				//In This Packet
+				BytePos = ErrorPosition[i] - CurPos;			
+				if(ErrorPosition[i] < ErrExponentialPoint[0]){
+					BitPos = 1;
+					BitPos = BitPos << (rand()%8);
+					ErrValue = ErrValue + 1;
+				}else if(ErrorPosition[i] < ErrExponentialPoint[1]){
+					BitPos = 3;
+					BitPos = BitPos << (rand()%7);
+					ErrValue = ErrValue + 2;
+				}else if(ErrorPosition[i] < ErrExponentialPoint[2]){
+					BitPos = 15;
+					BitPos = BitPos << (rand()%5);
+					ErrValue = ErrValue + 4;
+				}else if(ErrorPosition[i] < ErrExponentialPoint[3]){
+					BitPos = 31;
+					//BitPos = BitPos << (rand()%5);
+					ErrValue = ErrValue + 8;
+				}else if(ErrorPosition[i] < ErrExponentialPoint[4]){
+					BitPos = 31;
+					//BitPos = BitPos << (rand()%4);
+					ErrorData[BytePos-1] = ErrorData[BytePos-1] ^ BitPos;
+					ErrValue = ErrValue + 16;
+				}
+				ErrorData[BytePos] = ErrorData[BytePos] ^ BitPos;
+			}else if(ErrorPosition[i] > MaxPos || ErrorBitCount <= ErrValue){
+				break; // Over This Packet
+			}
+		}
+		CurrentPosition = CurrentPosition + len;
+	}else if(flag == 0 && CorErrorBitCount > CorValue){	// Encoded
+		CurPos = CorCurrentPosition;
+		MaxPos = CurPos + len;
+		for(i = 0; i < CorErrorBitCount; i++){	
+			if(CurPos < CorErrorPosition[i] && CorErrorPosition[i] < MaxPos){
+				//In This Packet
+				BytePos = CorErrorPosition[i] - CurPos;	
+				if(CorErrorPosition[i] < CorExponentialPoint[0]){
+					BitPos = 1;
+					BitPos = BitPos << (rand()%8);
+					CorValue = CorValue + 1;
+				}else if(CorErrorPosition[i] < CorExponentialPoint[1]){
+					BitPos = 3;
+					BitPos = BitPos << (rand()%7);
+					CorValue = CorValue + 2;
+				}else if(CorErrorPosition[i] < CorExponentialPoint[2]){
+					BitPos = 15;
+					BitPos = BitPos << (rand()%5);
+					CorValue = CorValue + 4;
+				}else if(CorErrorPosition[i] < CorExponentialPoint[3]){
+					BitPos = 31;
+					//BitPos = BitPos << (rand()%5);
+					CorValue = CorValue + 8;
+				}else if(CorErrorPosition[i] < CorExponentialPoint[4]){
+					BitPos = 31;
+					//BitPos = BitPos << (rand()%4);
+					ErrorData[BytePos-1] = ErrorData[BytePos-1] ^ BitPos;
+					CorValue = CorValue + 16;
+				}
+				ErrorData[BytePos] = ErrorData[BytePos] ^ BitPos;
+			}else if(CorErrorPosition[i] > MaxPos || CorErrorBitCount <= CorValue){
+				break; // Over This Packet
+			}
+		}
+		CorCurrentPosition = CorCurrentPosition + len;
+	}
+	memcpy(Error, ErrorData, len);
+}
+
+
+/*******************************************************************
+Comparing unsigned int for sorting
+//elem1
+//elem2
+*******************************************************************/
+int comp (const void * elem1, const void * elem2) 
+{
+    unsigned int f = *((unsigned int*)elem1);
+    unsigned int s = *((unsigned int*)elem2);
+    if (f > s) return  1;
+    if (f < s) return -1;
+    return 0;
+}
+
+
+/*******************************************************************
+SetErrorPosition
+//len
+//BERSelector
+*******************************************************************/
+void SetErrorPos(unsigned int len, int BERSelector){ 
+	unsigned int i = 0, r = 0;
+	PoissonProcess();
+	ErrorBitCount = 0;
+	CurrentPosition = 0;	
+	CorErrorBitCount = 0;
+	CorCurrentPosition = 0;	
+	if(ErrorPosition != NULL) free(ErrorPosition);
+	if(CorErrorPosition != NULL) free(CorErrorPosition);
+
+	ErrorBitCount = len;
+	ErrorBitCount = (ErrorBitCount * BER[BERSelector]) / 2;
+	ErrorPosition = (unsigned int*)malloc(sizeof(unsigned int) * ErrorBitCount);
+	
+	for(i = 0; i < ErrorBitCount; i++){	
+		ErrorPosition[i] = rand() % len;	
+	}
+	
+//	TotalEncodedLen = Info_Hamming(len, BER[BERSelector]);
+	TotalEncodedLen = A_Info(len, BER[BERSelector]);
+	EncodingRate = (double)TotalEncodedLen / (double)len;
+	CorErrorBitCount = (TotalEncodedLen * BER[BERSelector]) / 2;
+	CorErrorPosition = (unsigned int*)malloc(sizeof(unsigned int) * CorErrorBitCount);
+	ErrBitCount = CorErrorBitCount * 2;
+	for(i = 0; i < CorErrorBitCount; i++){
+		CorErrorPosition[i] = rand() % TotalEncodedLen;	
+	}
+
+	qsort(ErrorPosition, ErrorBitCount, sizeof(unsigned int), comp);
+	qsort(CorErrorPosition, CorErrorBitCount, sizeof(unsigned int), comp);
+	
+	//Calculate Bursty Position
+	
+	for(i = 0 ; i < 5 ; i++){
+		ErrExponentialPoint[i] = ((T[i] * 0.1) * (double)ErrorBitCount) * 2;
+		CorExponentialPoint[i] = ((T[i] * 0.1) * (double)CorErrorBitCount) * 2;
+		printf("ErrPosition = %u, CorPosition = %u\n", ErrExponentialPoint[i], CorExponentialPoint[i]);
+	}
+	
+}
+
+
+/*******************************************************************
+WriteTestResult
+//Dataid = number of loop on BER
+//target = simulation_result.xml
+*******************************************************************/
+void WriteTestResult(int Dataid, FILE *target){
+	fprintf(target, "\t<Data id = \"%d\">\n", Dataid);
+	fprintf(target, "\t\t<FileLen>%u</FileLen>\n",TotalEncodedLen);
+	fprintf(target, "\t\t<EBNO>%lf</EBNO>\n",EBNO[BERSelector]);
+	fprintf(target, "\t\t<EncodingRate>%lf</EncodingRate>\n", EncodingRate);
+	fprintf(target, "\t\t<ErrorCount>%u</ErrorCount>\n", ErrBitCount);
+	fprintf(target, "\t\t<ErrorBER>%lf</ErrorBER>\n", (double)ErrBitCount / (double)TotalEncodedLen);
+	fprintf(target, "\t\t<CorrectCount>%u</CorrectCount>\n", CorBitCount);
+	fprintf(target, "\t\t<CorrectBER>%lf</CorrectBER>\n", (double)CorBitCount / (double)TotalEncodedLen);
+	fprintf(target, "\t\t<CorrectRatio>%lf</CorrectRatio>\n", ((double)1 - (double)CorBitCount / (double)ErrBitCount));
+	fprintf(target, "\t\t<PacketCount>%u</PacketCount>\n",OriIPPacketCount);
+	fprintf(target, "\t\t<ErrorPacketCount>%u</ErrorPacketCount>\n", ErrIPPacketCount);
+	fprintf(target, "\t\t<ErrorPER>%lf</ErrorPER>\n", 1 - ((double)ErrIPPacketCount / (double)OriIPPacketCount));
+	fprintf(target, "\t\t<CorrectPacketCount>%u</CorrectPacketCount>\n", CorIPPacketCount);
+	fprintf(target, "\t\t<CorrectPER>%lf</CorrectPER>\n", 1 - ((double)CorIPPacketCount / (double)OriIPPacketCount));
+	fprintf(target, "\t\t<CorrectPacketRatio>%lf</CorrectPacketRatio>\n", ((double)1 - ((double)(OriIPPacketCount - CorIPPacketCount) / (double)(OriIPPacketCount - ErrIPPacketCount))));
+	fprintf(target, "\t</Data>\n", Dataid);
+}
+
+/*******************************************************************
+PoissonProcess
+Calculating the error position rate by PoissonProcess
+*******************************************************************/
+void PoissonProcess(){
+	double Rate = 1.0;
+	int i, len = 5; 
+	double r;
+	memset(T, 0.0, 5);
+	memset(ErrExponentialPoint, 0, 5);
+	ErrValue = 0;
+	memset(CorExponentialPoint, 0, 5);
+	CorValue = 0;
+	while(1){
+		for(i = 0; i < len - 1; i++){
+			r = (double)rand() / RAND_MAX; 
+			T[i+1] = (T[i]-((double) 1 / Rate)*(log(r))) * 2;
+		}
+		if(T[i] <= len * 2) break;
+	}
+	printf("\n\n");
+	for(i = 0; i< len ; i++){
+		printf("%lf ",T[i] * 0.1);
+	}
+	printf("\n");
+
+}
+
+
+/*******************************************************************
+Main
+*******************************************************************/
+// # return value
+// 0 : OK
+// 1 : Time Limit
+// 2 : Bad SysCall
+// 3 : System Error
+int main(int argc, char *argv[])
+{
+	if( argc != 4 )
+	{
+		printf( "Usage : %s <path_solibrary> <path_workdir> <path_sample>\n", argv[0] );
+		return 3;
+	}
+
+	TestVideo(argv[1], argv[2], argv[3]);
+	return 0;
+}
+
+
+/*******************************************************************
+Reset Global variables
+*******************************************************************/
+void ResetGlobal(){
+	ErrBitCount = 0;
+	CorBitCount = 0;
+	OriRTPPacketCount = 0;
+	OriUDPPacketCount = 0;
+	OriIPPacketCount = 0;
+	ErrRTPPacketCount = 0;
+	ErrUDPPacketCount = 0;
+	ErrIPPacketCount = 0;
+	CorRTPPacketCount = 0;
+	CorUDPPacketCount = 0;
+	CorIPPacketCount = 0;
+	TotalEncodedLen = 0;
+	EncodingRate = 0;
+}
+
+/*******************************************************************
+TestVideo
+Main Test Process
+//libname = library path
+//dir = directory path for saving result and video
+//sample = sample video path
+*******************************************************************/
+void TestVideo(char* libname, char* dir, char* sample){
+	FILE *src, *err1, *cor1, *err2, *cor2, *err3, *cor3, *xml;
+	FILE *Err[TESTCASE], *Cor[TESTCASE];
+
+	//Test Data
+	FILE *ErrBitdump, *CorBitdump;
+	char bitbuf[8] = {0,};
+	int bitloop;
+
+	unsigned char *OriFileData, *CorFileData, *ErrFileData, *TempFileData;
+	unsigned int PacketedSize = 0;
+	int readsize = 0;
+	unsigned char buf[1024] = {0 ,};
+	int tail = 0;
+	int MTUEncodingLen = 0;
+	int loop = 0;
+	clock_t start_time, end_time;
+	int i, j, one = 1;
+	unsigned int len;
+	void* pHandle;
+	char FileNames[256] = {0, }, TempFileName[2] = {0, 0};
+	int Testloop = 0;
+
+	ErrorPosition = NULL;
+	CorErrorPosition = NULL;
+
+
+	if( install_exception_syscall() == 0 )
+	{
+		fprintf( stderr, "install seccomp fail!\n" );
+		exit( 3 );
+	}
+
+
+	/*Set LibFunc*/
+	printf("%s %s\n" , libname, dir);
+	pHandle = dlopen(libname, RTLD_LAZY);
+	Encoding = dlsym(pHandle, "Encoding");
+	Decoding = dlsym(pHandle, "Decoding");
+	Info = dlsym(pHandle, "Info");
+	
+	srand((unsigned int)time(NULL));	
+	signal( SIGALRM, sigint_handler );
+
+	/*Read for Files*/
+
+	src=fopen(sample,"r");
+	memset(FileNames, 0, 256);
+	strcat(FileNames, dir);
+	strcat(FileNames, "simulation_result.xml");
+	xml=fopen(FileNames,"w");
+	memset(FileNames, 0, 256);
+	strcat(FileNames, dir);
+	strcat(FileNames, "ErrBitdump");
+	ErrBitdump=fopen(FileNames,"w");
+	memset(FileNames, 0, 256);
+	strcat(FileNames, dir);
+	strcat(FileNames, "CorBitdump");
+	CorBitdump=fopen(FileNames,"w");
+
+	for(i = 0; i < TESTCASE; i++){
+		EBNO[i] = pow(10, 0.05 + (0.05*i));
+		sprintf(TempFileName, "%d", i); 
+		memset(FileNames, 0, 256);
+		strcat(FileNames, dir);
+		strcat(FileNames, "Err");
+		strcat(FileNames, TempFileName);
+		strcat(FileNames, ".mp4");
+		Err[i]=fopen(FileNames,"w");
+		memset(FileNames, 0, 256);
+		strcat(FileNames, dir);
+		strcat(FileNames, "Cor");
+		strcat(FileNames, TempFileName);
+		strcat(FileNames, ".mp4");
+		Cor[i]=fopen(FileNames,"w");		
+	}
+
+	/*Data serializing*/
+	fseek(src, 0, SEEK_END);
+	len = ftell(src);
+	fseek(src, 0, SEEK_SET);
+	OriFileData = malloc(len);
+	CorFileData = malloc(len);
+	ErrFileData = malloc(len);
+	TempFileData = malloc(len);
+	i = 0; 
+	while(1){		
+		readsize = fread(buf, 1, 1024, src);
+		if(0 == readsize) break;
+		memcpy(OriFileData+(i * 1024),buf, readsize);
+		OriDataSize = OriDataSize + readsize;
+		i++;
+	}
+
+
+	//Init BER and Set MTUEncoding DataArray
+	for(i = 0; i < TESTCASE; i++){
+		BER[i] = (erfc(sqrt(EBNO[i]))) /2;
+		MTUEncodingLen = A_Info(1500, BER[i]);
+		MTUEncodedData[i] = (char*)malloc(sizeof(char) * MTUEncodingLen);
+		MTUErrData[i] = (char*)malloc(sizeof(char) * MTUEncodingLen);
+	}
+
+
+	//Test Excute and Save Data Result
+	start_time = clock();
+	fprintf(xml, "<Result>\n");
+	BERSelector = 0;
+	for(Testloop = 0; Testloop < TESTCASE; Testloop++){
+		fprintf(xml, "<BER id = \"%d\">\n", BERSelector);
+		for(loop = 0; loop < 2; loop++){
+			ResetGlobal();			
+			SetErrorPos(OriDataSize, BERSelector);
+			//Test Excute
+			Packataging(OriFileData, CorFileData, ErrFileData, len);
+
+			memset(TempFileData, 0, len);
+			for(i = 0; i < len; i++){
+				TempFileData[i] = CorFileData[i] ^ OriFileData[i];	
+				for(j = 0; j < 8; j++){
+					CorBitCount = CorBitCount + ((TempFileData[i] >> j) & one);
+				}
+			}
+
+			printf("RTP: %u %u %u\nUDP: %u %u %u\nIP: %u %u %u\nBit: %u %u %u\nRate: %lf\n", 
+					OriRTPPacketCount, CorRTPPacketCount, ErrRTPPacketCount,
+					OriUDPPacketCount, CorUDPPacketCount, ErrUDPPacketCount,
+					OriIPPacketCount, CorIPPacketCount, ErrIPPacketCount,
+					TotalEncodedLen, ErrBitCount, CorBitCount, 	EncodingRate);
+
+			//Save Video Data
+			for(i = 0; i * 1024 + 1024 < len ; i++){ 
+				memcpy(buf,CorFileData + (i*1024), 1024);	
+				fwrite(buf, sizeof(char), 1024, Cor[Testloop]);
+				memcpy(buf,ErrFileData + (i*1024), 1024);	
+				fwrite(buf, sizeof(char), 1024, Err[Testloop]);
+			}
+			tail = len % 1024;
+			memcpy(buf,CorFileData + (i*1024), tail);	
+			fwrite(buf, sizeof(char), tail, Cor[Testloop]);
+			memcpy(buf,ErrFileData + (i*1024), tail);	
+			fwrite(buf, sizeof(char), tail, Err[Testloop]);
+
+			//Save Result Data
+			WriteTestResult(loop, xml);
+		}
+		fprintf(xml, "</BER>\n");
+		//Test code to make Bit Dump
+		/*
+		if(BERSelector == 0){
+			for(bitloop = 0; bitloop < len; bitloop++){
+				bitbuf[0] = ((OriFileData[bitloop] >> 7) & 1) > 0 ? '1' : '0';
+				bitbuf[1] = ((OriFileData[bitloop] >> 6) & 1) > 0 ? '1' : '0';
+				bitbuf[2] = ((OriFileData[bitloop] >> 5) & 1) > 0 ? '1' : '0';
+				bitbuf[3] = ((OriFileData[bitloop] >> 4) & 1) > 0 ? '1' : '0';
+				bitbuf[4] = ((OriFileData[bitloop] >> 3) & 1) > 0 ? '1' : '0';
+				bitbuf[5] = ((OriFileData[bitloop] >> 2) & 1) > 0 ? '1' : '0';
+				bitbuf[6] = ((OriFileData[bitloop] >> 1) & 1) > 0 ? '1' : '0';
+				bitbuf[7] = ((OriFileData[bitloop] >> 0) & 1) > 0 ? '1' : '0';
+				fwrite(bitbuf, sizeof(char), 8, ErrBitdump);
+				bitbuf[0] = ((CorFileData[bitloop] >> 7) & 1) > 0 ? '1' : '0';
+				bitbuf[1] = ((CorFileData[bitloop] >> 6) & 1) > 0 ? '1' : '0';
+				bitbuf[2] = ((CorFileData[bitloop] >> 5) & 1) > 0 ? '1' : '0';
+				bitbuf[3] = ((CorFileData[bitloop] >> 4) & 1) > 0 ? '1' : '0';
+				bitbuf[4] = ((CorFileData[bitloop] >> 3) & 1) > 0 ? '1' : '0';
+				bitbuf[5] = ((CorFileData[bitloop] >> 2) & 1) > 0 ? '1' : '0';
+				bitbuf[6] = ((CorFileData[bitloop] >> 1) & 1) > 0 ? '1' : '0';
+				bitbuf[7] = ((CorFileData[bitloop] >> 0) & 1) > 0 ? '1' : '0';
+				fwrite(bitbuf, sizeof(char), 8, CorBitdump);
+
+				
+					bitbuf[0] = '\n';
+					fwrite(bitbuf, sizeof(char), 1, ErrBitdump);
+					fwrite(bitbuf, sizeof(char), 1, CorBitdump);
+
+			}
+		}
+		*/
+		BERSelector++;
+	}
+	fprintf(xml, "</Result>\n");
+	end_time = clock();
+	printf("Testing Time : %f\n",((double)(end_time - start_time)) / CLOCKS_PER_SEC);
+
+
+
+	/*Ending Process*/
+	for(i = 0; i < TESTCASE; i++){
+		free(MTUEncodedData[i]);
+		free(MTUErrData[i]);
+		fclose(Err[i]);
+		fclose(Cor[i]);
+	}
+	if(ErrorPosition != NULL) {
+		free(ErrorPosition);
+		ErrorPosition = NULL;
+	}
+	
+	if(CorErrorPosition != NULL){
+		free(CorErrorPosition);
+		CorErrorPosition = NULL;
+	}
+
+	dlclose(pHandle);
+	free(OriFileData);
+	free(CorFileData);
+	free(ErrFileData);
+	fclose(src);		
+	fclose(xml);
+	fclose(ErrBitdump);
+	fclose(CorBitdump);
+}
+
+

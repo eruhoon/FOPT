@@ -46,4 +46,5 @@ $RECYCLE.BIN/
 *.msp
 
 # Result File
-*/result/*
+fopt/result/*
+fopt/coredump/*
